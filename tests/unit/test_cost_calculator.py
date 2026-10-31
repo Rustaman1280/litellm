@@ -10935,3 +10935,50 @@ def test_bedrock_registered_cache_prices_preserve_dynamic_threshold_rates(
     assert entry is not None
     assert entry[1]["input_cost_per_token_above_300k_tokens"] == 0.03
     assert entry[1][tier_field] == (tier_override if tier_override is not None else 0.007)
+
+
+@pytest.mark.parametrize(
+    ("model", "retained_key", "deployment_rate"),
+    (
+        ("video-model", "openai/video-model", None),
+        ("openai/video-model", "video-model", None),
+        ("openai/video-model", "openai/video-model", 0.7),
+    ),
+)
+def test_video_pricing_uses_retained_catalog_and_deployment_precedence(
+    monkeypatch: pytest.MonkeyPatch, model: str, retained_key: str, deployment_rate: float | None
+) -> None:
+    from pydantic import TypeAdapter
+
+    from litellm.cost_calculator import default_video_cost_calculator
+    from litellm.litellm_core_utils.llm_cost_calc.pricing_context import RetainedPricing, retained_pricing
+    from litellm.types.utils import ModelInfo
+
+    info: Final = TypeAdapter(ModelInfo).validate_python(
+        {
+            "key": retained_key,
+            "max_tokens": None,
+            "max_input_tokens": None,
+            "max_output_tokens": None,
+            "input_cost_per_token": None,
+            "output_cost_per_token": None,
+            "litellm_provider": "openai",
+            "mode": "image_generation",
+            "supported_openai_params": None,
+            "output_cost_per_video_per_second": 0.2,
+        }
+    )
+    retained: Final = RetainedPricing(json.dumps({retained_key: info}), "{}", "{}")
+    changed: Final = {**info, "output_cost_per_video_per_second": 9.0}
+    monkeypatch.setattr(litellm, "model_cost", {"video-model": changed, "openai/video-model": changed})
+    deployment: Final = (
+        TypeAdapter(ModelInfo).validate_python({**info, "output_cost_per_video_per_second": deployment_rate})
+        if deployment_rate is not None
+        else None
+    )
+    with retained_pricing(retained):
+        price: Final = default_video_cost_calculator(
+            model, duration_seconds=4, custom_llm_provider="openai", model_info=deployment
+        )
+    assert price == pytest.approx(4 * (deployment_rate if deployment_rate is not None else 0.2))
+    assert litellm.model_cost["video-model"]["output_cost_per_video_per_second"] == 9.0
