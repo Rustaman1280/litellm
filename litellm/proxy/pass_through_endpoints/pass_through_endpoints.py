@@ -2544,7 +2544,7 @@ def _json_object_frame(frame: str | bytes) -> dict[str, object] | None:
     return decoded if isinstance(decoded, dict) else None
 
 
-def _truncated_close_reason(reason: str) -> str:
+def truncated_close_reason(reason: str) -> str:
     """
     Fit a close reason inside the byte budget a WebSocket close frame allows, without splitting a character
     """
@@ -2918,7 +2918,7 @@ async def websocket_passthrough_request(
             if upstream_close is not None and _client_socket_is_open(websocket):
                 await websocket.close(
                     code=upstream_close.code,
-                    reason=_truncated_close_reason(upstream_close.reason),
+                    reason=truncated_close_reason(upstream_close.reason),
                 )
 
             end_time: Final = datetime.now()
